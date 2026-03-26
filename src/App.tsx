@@ -14,14 +14,8 @@ type RawNumberEntry = {
   value: number
 }
 
-type GridCell = {
-  alphabeticalRank: number
-  value: number
-}
-
 type ChartData = {
   data: NumberPoint[]
-  gridCells: GridCell[]
   pointsByValue: Map<number, NumberPoint>
   xValues: number[]
   xTicks: number[]
@@ -67,6 +61,7 @@ const tens: Record<number, string> = {
 }
 
 const collator = new Intl.Collator('sv-SE')
+const swedishNumberCache = new Map<number, string>()
 const minAvailableStart = 0
 const maxAvailableValue = 5000
 const defaultAvailableStart = 0
@@ -124,6 +119,18 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
 
+function getSwedishNumber(value: number): string {
+  const cachedName = swedishNumberCache.get(value)
+
+  if (cachedName) {
+    return cachedName
+  }
+
+  const name = toSwedishNumber(value)
+  swedishNumberCache.set(value, name)
+  return name
+}
+
 function getTickStep(maxValue: number): number {
   const roughStep = Math.max(1, Math.ceil(maxValue / 10))
   const magnitude = 10 ** Math.floor(Math.log10(roughStep))
@@ -143,13 +150,21 @@ function getTickStep(maxValue: number): number {
   return magnitude * 10
 }
 
+function getPlotLayout(plotSize: number) {
+  const marginPad = Math.max(12, Math.round(plotSize * 0.018))
+  const axisPad = Math.max(38, Math.round(plotSize * 0.055))
+  const plotAreaSize = Math.max(0, plotSize - axisPad - marginPad)
+
+  return { axisPad, marginPad, plotAreaSize }
+}
+
 function buildChartData(rangeStart: number, rangeEnd: number): ChartData {
   const xValues = d3.range(rangeStart, rangeEnd + 1)
   const count = xValues.length
   const yValues = d3.range(0, count)
   const rawData: RawNumberEntry[] = xValues.map(
     (value: number): RawNumberEntry => ({
-      name: toSwedishNumber(value),
+      name: getSwedishNumber(value),
       value,
     }),
   )
@@ -170,15 +185,6 @@ function buildChartData(rangeStart: number, rangeEnd: number): ChartData {
     pointsByValue.set(point.value, point)
   }
 
-  const gridCells: GridCell[] = d3.cross(
-    xValues,
-    yValues,
-    (value: number, alphabeticalRank: number): GridCell => ({
-      alphabeticalRank,
-      value,
-    }),
-  )
-
   const tickStep = getTickStep(Math.max(1, rangeEnd - rangeStart))
   const xTicks = d3.range(rangeStart, rangeEnd + 1, tickStep)
   const yTicks = d3.range(0, count, tickStep)
@@ -191,7 +197,7 @@ function buildChartData(rangeStart: number, rangeEnd: number): ChartData {
     yTicks.push(count - 1)
   }
 
-  return { data, gridCells, pointsByValue, xTicks, xValues, yTicks, yValues }
+  return { data, pointsByValue, xTicks, xValues, yTicks, yValues }
 }
 
 function App() {
@@ -230,11 +236,6 @@ function App() {
   }, [chartData.pointsByValue, deferredVisibleEnd, deferredVisibleStart])
 
   useEffect(() => {
-    setVisibleStart(availableStart)
-    setVisibleEnd(availableEnd)
-  }, [availableEnd, availableStart])
-
-  useEffect(() => {
     const updatePlotSize = () => {
       const controlsHeight = controlsRef.current?.getBoundingClientRect().height ?? 0
       const viewportWidth = window.innerWidth
@@ -271,13 +272,19 @@ function App() {
     }
   }, [])
 
+  const updateAvailableRange = (nextStart: number, nextEnd: number) => {
+    setAvailableStart(nextStart)
+    setAvailableEnd(nextEnd)
+    setVisibleStart(nextStart)
+    setVisibleEnd(nextEnd)
+  }
+
   useEffect(() => {
     if (!basePlotRef.current) {
       return
     }
 
-    const marginPad = Math.max(12, Math.round(plotSize * 0.018))
-    const axisPad = Math.max(38, Math.round(plotSize * 0.055))
+    const { axisPad, marginPad } = getPlotLayout(plotSize)
 
     const basePlot = Plot.plot({
       width: plotSize,
@@ -311,12 +318,6 @@ function App() {
         ticks: chartData.yTicks,
       },
       marks: [
-        Plot.cell(chartData.gridCells, {
-          x: 'value',
-          y: 'alphabeticalRank',
-          fill: 'rgba(22, 24, 37, 0.94)',
-          inset: 0.7,
-        }),
         Plot.frame({
           inset: 0,
           stroke: 'rgba(200, 212, 255, 0.22)',
@@ -330,15 +331,14 @@ function App() {
     return () => {
       basePlot.remove()
     }
-  }, [chartData.gridCells, chartData.xTicks, chartData.xValues, chartData.yTicks, chartData.yValues, plotSize])
+  }, [chartData.xTicks, chartData.xValues, chartData.yTicks, chartData.yValues, plotSize])
 
   useEffect(() => {
     if (!overlayPlotRef.current) {
       return
     }
 
-    const marginPad = Math.max(12, Math.round(plotSize * 0.018))
-    const axisPad = Math.max(38, Math.round(plotSize * 0.055))
+    const { axisPad, marginPad } = getPlotLayout(plotSize)
 
     const overlayPlot = Plot.plot({
       width: plotSize,
@@ -386,6 +386,8 @@ function App() {
   const availableSpan = Math.max(1, availableEnd - availableStart)
   const visibleCount = Math.max(0, visibleEnd - visibleStart + 1)
   const availableCount = Math.max(0, availableEnd - availableStart + 1)
+  const { axisPad, marginPad, plotAreaSize } = getPlotLayout(plotSize)
+  const gridCellSize = plotAreaSize / availableCount
 
   return (
     <main className="app-shell">
@@ -405,10 +407,7 @@ function App() {
                   minAvailableStart,
                   maxAvailableValue,
                 )
-                setAvailableStart(nextStart)
-                if (nextStart > availableEnd) {
-                  setAvailableEnd(nextStart)
-                }
+                updateAvailableRange(nextStart, Math.max(nextStart, availableEnd))
               }}
             />
           </label>
@@ -462,10 +461,7 @@ function App() {
                   minAvailableStart,
                   maxAvailableValue,
                 )
-                setAvailableEnd(nextEnd)
-                if (nextEnd < availableStart) {
-                  setAvailableStart(nextEnd)
-                }
+                updateAvailableRange(Math.min(availableStart, nextEnd), nextEnd)
               }}
             />
           </label>
@@ -482,6 +478,16 @@ function App() {
         style={{ height: `${plotSize}px`, width: `${plotSize}px` }}
       >
         <div className="plot-canvas">
+          <div
+            className="plot-grid"
+            style={{
+              top: `${marginPad}px`,
+              left: `${axisPad}px`,
+              width: `${plotAreaSize}px`,
+              height: `${plotAreaSize}px`,
+              backgroundSize: `${gridCellSize}px ${gridCellSize}px`,
+            }}
+          />
           <div className="plot-layer plot-layer--base" ref={basePlotRef} />
           <div className="plot-layer plot-layer--overlay" ref={overlayPlotRef} />
         </div>
