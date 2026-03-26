@@ -2,6 +2,14 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import * as Plot from '@observablehq/plot'
 import * as d3 from 'd3'
 import './App.css'
+import {
+  getLanguageCollator,
+  getNumberName,
+  getSortableNumberName,
+  numberLanguageById,
+  numberLanguages,
+  type LanguageId,
+} from './numberLanguages'
 
 type NumberPoint = {
   alphabeticalRank: number
@@ -11,6 +19,7 @@ type NumberPoint = {
 
 type RawNumberEntry = {
   name: string
+  sortName: string
   value: number
 }
 
@@ -29,112 +38,13 @@ type ChartData = {
   yTicks: number[]
 }
 
-const units: Record<number, string> = {
-  0: 'noll',
-  1: 'ett',
-  2: 'två',
-  3: 'tre',
-  4: 'fyra',
-  5: 'fem',
-  6: 'sex',
-  7: 'sju',
-  8: 'åtta',
-  9: 'nio',
-}
-
-const teens: Record<number, string> = {
-  10: 'tio',
-  11: 'elva',
-  12: 'tolv',
-  13: 'tretton',
-  14: 'fjorton',
-  15: 'femton',
-  16: 'sexton',
-  17: 'sjutton',
-  18: 'arton',
-  19: 'nitton',
-}
-
-const tens: Record<number, string> = {
-  20: 'tjugo',
-  30: 'trettio',
-  40: 'fyrtio',
-  50: 'femtio',
-  60: 'sextio',
-  70: 'sjuttio',
-  80: 'åttio',
-  90: 'nittio',
-}
-
-const collator = new Intl.Collator('sv-SE')
-const swedishNumberCache = new Map<number, string>()
 const minAvailableStart = 0
 const maxAvailableValue = 5000
 const defaultAvailableStart = 0
 const defaultAvailableEnd = 100
 
-function toSwedishNumber(value: number): string {
-  if (value < 0) {
-    return `minus${toSwedishNumber(Math.abs(value))}`
-  }
-
-  if (value in units) {
-    return units[value]
-  }
-
-  if (value in teens) {
-    return teens[value]
-  }
-
-  if (value < 100) {
-    const tenValue = Math.floor(value / 10) * 10
-    const unitValue = value % 10
-
-    if (unitValue === 0) {
-      return tens[tenValue]
-    }
-
-    return `${tens[tenValue]}${units[unitValue]}`
-  }
-
-  if (value < 1000) {
-    const hundredValue = Math.floor(value / 100)
-    const remainder = value % 100
-    const hundredWord = hundredValue === 1 ? 'hundra' : `${units[hundredValue]}hundra`
-
-    if (remainder === 0) {
-      return hundredWord
-    }
-
-    return `${hundredWord}${toSwedishNumber(remainder)}`
-  }
-
-  const thousandValue = Math.floor(value / 1000)
-  const remainder = value % 1000
-  const thousandWord =
-    thousandValue === 1 ? 'ettusen' : `${toSwedishNumber(thousandValue)}tusen`
-
-  if (remainder === 0) {
-    return thousandWord
-  }
-
-  return `${thousandWord}${toSwedishNumber(remainder)}`
-}
-
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
-}
-
-function getSwedishNumber(value: number): string {
-  const cachedName = swedishNumberCache.get(value)
-
-  if (cachedName) {
-    return cachedName
-  }
-
-  const name = toSwedishNumber(value)
-  swedishNumberCache.set(value, name)
-  return name
 }
 
 function getTickStep(maxValue: number): number {
@@ -164,20 +74,26 @@ function getPlotLayout(plotSize: number) {
   return { axisPad, marginPad, plotAreaSize }
 }
 
-function buildChartData(rangeStart: number, rangeEnd: number): ChartData {
+function buildChartData(
+  rangeStart: number,
+  rangeEnd: number,
+  languageId: LanguageId,
+): ChartData {
   const xValues = d3.range(rangeStart, rangeEnd + 1)
   const count = xValues.length
+  const collator = getLanguageCollator(languageId)
   const yValues = d3.range(1, count + 1)
   const rawData: RawNumberEntry[] = xValues.map(
     (value: number): RawNumberEntry => ({
-      name: getSwedishNumber(value),
+      name: getNumberName(value, languageId),
+      sortName: getSortableNumberName(value, languageId),
       value,
     }),
   )
 
   const data: NumberPoint[] = d3
     .sort(rawData, (a: RawNumberEntry, b: RawNumberEntry) =>
-      collator.compare(a.name, b.name),
+      collator.compare(a.sortName, b.sortName),
     )
     .map((entry: RawNumberEntry, index: number) => ({
       alphabeticalRank: index + 1,
@@ -220,16 +136,18 @@ function App() {
   const controlsRef = useRef<HTMLElement | null>(null)
   const basePlotRef = useRef<HTMLDivElement | null>(null)
   const overlayPlotRef = useRef<HTMLDivElement | null>(null)
+  const [selectedLanguageId, setSelectedLanguageId] = useState<LanguageId>('sv')
   const [availableStart, setAvailableStart] = useState(defaultAvailableStart)
   const [availableEnd, setAvailableEnd] = useState(defaultAvailableEnd)
   const [visibleStart, setVisibleStart] = useState(defaultAvailableStart)
   const [visibleEnd, setVisibleEnd] = useState(defaultAvailableEnd)
   const [plotSize, setPlotSize] = useState(720)
   const [showEqualityLine, setShowEqualityLine] = useState(false)
+  const selectedLanguage = numberLanguageById[selectedLanguageId]
 
   const chartData = useMemo(
-    () => buildChartData(availableStart, availableEnd),
-    [availableEnd, availableStart],
+    () => buildChartData(availableStart, availableEnd, selectedLanguageId),
+    [availableEnd, availableStart, selectedLanguageId],
   )
   const deferredVisibleStart = useDeferredValue(visibleStart)
   const deferredVisibleEnd = useDeferredValue(visibleEnd)
@@ -319,7 +237,7 @@ function App() {
       },
       x: {
         type: 'band',
-        label: 'Vilket nummer',
+        label: 'Number value',
         domain: chartData.xValues,
         padding: 0,
         tickSize: 0,
@@ -327,7 +245,7 @@ function App() {
       },
       y: {
         type: 'band',
-        label: 'Alfabetisk position',
+        label: 'Alphabetical position',
         domain: chartData.yValues,
         padding: 0,
         reverse: true,
@@ -432,6 +350,30 @@ function App() {
   return (
     <main className="app-shell">
       <section className="controls-shell" ref={controlsRef}>
+        <div className="control-row control-row--meta">
+          <label className="number-group">
+            <span>Language</span>
+            <select
+              className="number-input select-input"
+              value={selectedLanguageId}
+              onChange={(event) => {
+                setSelectedLanguageId(event.target.value as LanguageId)
+              }}
+            >
+              {numberLanguages.map((language) => (
+                <option key={language.id} value={language.id}>
+                  {language.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <p className="control-copy">
+            Sort number names using {selectedLanguage.label.toLowerCase()} spelling and
+            collation rules.
+          </p>
+        </div>
+
         <div className="control-row">
           <label className="number-group">
             <span>From</span>
@@ -521,13 +463,17 @@ function App() {
           </span>
           <span className="toggle-switch__copy">
             <strong>Show y=x+1</strong>
-            <small>Compare values with their 1-based alphabetical rank.</small>
+            <small>
+              Compare values with their 1-based alphabetical rank in{' '}
+              {selectedLanguage.label.toLowerCase()}.
+            </small>
           </span>
         </label>
 
         <p className="control-note">
           {visibleCount} point{visibleCount === 1 ? '' : 's'} visible from {availableCount}{' '}
-          available. Supported range: {minAvailableStart} to {maxAvailableValue}.
+          available in {selectedLanguage.label}. Supported range: {minAvailableStart} to{' '}
+          {maxAvailableValue}.
         </p>
       </section>
 
