@@ -163,6 +163,32 @@ function getPlotLayout(plotSize: number) {
   return { axisPad, marginPad, plotAreaSize };
 }
 
+function getBandGridLayout(cellCount: number, plotAreaSize: number) {
+  if (cellCount <= 0 || plotAreaSize <= 0) {
+    return {
+      bandwidth: 0,
+      boundaries: [] as number[],
+    };
+  }
+
+  const scale = d3
+    .scaleBand<number>()
+    .domain(d3.range(cellCount))
+    .range([0, plotAreaSize])
+    .paddingInner(0)
+    .paddingOuter(0);
+  const firstBoundary = scale(0) ?? 0;
+  const step = scale.step();
+  const boundaries = Array.from({ length: cellCount + 1 }, (_, index) =>
+    firstBoundary + step * index,
+  );
+
+  return {
+    bandwidth: scale.bandwidth(),
+    boundaries,
+  };
+}
+
 function buildChartData(
   rangeStart: number,
   rangeEnd: number,
@@ -235,6 +261,7 @@ function getPointTitle(entry: NumberPoint): string {
 
 function App() {
   const controlsRef = useRef<HTMLElement | null>(null);
+  const plotRangeRef = useRef<HTMLDivElement | null>(null);
   const basePlotRef = useRef<HTMLDivElement | null>(null);
   const overlayPlotRef = useRef<HTMLDivElement | null>(null);
   const initialUserOptions = useMemo(() => getStoredUserOptions(), []);
@@ -290,7 +317,11 @@ function App() {
   const visibleCount = Math.max(0, visibleEnd - visibleStart + 1);
   const availableCount = Math.max(0, availableEnd - availableStart + 1);
   const { axisPad, marginPad, plotAreaSize } = getPlotLayout(plotSize);
-  const gridCellSize = plotAreaSize / availableCount;
+  const bandGridLayout = useMemo(
+    () => getBandGridLayout(availableCount, plotAreaSize),
+    [availableCount, plotAreaSize],
+  );
+  const gridCellSize = bandGridLayout.bandwidth;
   const useCompactPointSquares =
     pointDisplayMode === "squares" ||
     (pointDisplayMode === "auto" && gridCellSize < 6);
@@ -299,22 +330,42 @@ function App() {
     compactPointMinSize,
     compactPointMaxSize,
   );
-  const compactPointSize = compactPointRadius * 2;
-  const visibleGridCellSize = useCompactPointSquares
-    ? Math.max(gridCellSize, compactPointSize)
-    : gridCellSize;
+  const plotGridPath = useMemo(() => {
+    if (availableCount <= 0 || plotAreaSize <= 0) {
+      return "";
+    }
+
+    const commands: string[] = [];
+
+    for (const boundary of bandGridLayout.boundaries) {
+      const offset = Number(boundary.toFixed(4));
+
+      commands.push(`M${offset} 0V${plotAreaSize}`);
+      commands.push(`M0 ${offset}H${plotAreaSize}`);
+    }
+
+    return commands.join("");
+  }, [availableCount, bandGridLayout.boundaries, plotAreaSize]);
 
   useEffect(() => {
     const updatePlotSize = () => {
       const controlsHeight =
         controlsRef.current?.getBoundingClientRect().height ?? 0;
+      const plotRangeHeight =
+        plotRangeRef.current?.getBoundingClientRect().height ?? 0;
       const viewportWidth = window.innerWidth;
       const viewportHeight = window.innerHeight;
       const outerPadding = viewportWidth <= 720 ? 18 : 28;
       const controlsGap = viewportWidth <= 720 ? 8 : 10;
+      const plotShellChrome = viewportWidth <= 720 ? 26 : 34;
       const availableWidth = viewportWidth - outerPadding * 2;
       const availableHeight =
-        viewportHeight - controlsHeight - controlsGap - outerPadding * 2;
+        viewportHeight -
+        controlsHeight -
+        plotRangeHeight -
+        plotShellChrome -
+        controlsGap -
+        outerPadding * 2;
       const nextSize = Math.max(
         280,
         Math.floor(Math.min(availableWidth, availableHeight, 1480)),
@@ -335,6 +386,10 @@ function App() {
 
     if (controlsRef.current) {
       observer.observe(controlsRef.current);
+    }
+
+    if (plotRangeRef.current) {
+      observer.observe(plotRangeRef.current);
     }
 
     window.addEventListener("resize", updatePlotSize);
@@ -409,6 +464,7 @@ function App() {
         label: "Number value",
         domain: chartData.xValues,
         padding: 0,
+        round: false,
         tickSize: 0,
         ticks: chartData.xTicks,
       },
@@ -417,6 +473,7 @@ function App() {
         label: "Alphabetical position",
         domain: chartData.yValues,
         padding: 0,
+        round: false,
         reverse: true,
         tickSize: 0,
         ticks: chartData.yTicks,
@@ -486,12 +543,14 @@ function App() {
         axis: null,
         domain: chartData.xValues,
         padding: 0,
+        round: false,
       },
       y: {
         type: "band",
         axis: null,
         domain: chartData.yValues,
         padding: 0,
+        round: false,
         reverse: true,
       },
       marks: [
@@ -573,12 +632,6 @@ function App() {
             </select>
           </label>
 
-          <div className="control-status" aria-live="polite">
-            <span>
-              {visibleCount} / {availableCount} visible
-            </span>
-          </div>
-
           <label className="toggle-switch toggle-switch--compact">
             <input
               className="toggle-switch__input"
@@ -620,47 +673,6 @@ function App() {
               }}
             />
           </label>
-
-          <div className="slider-group">
-            <span>Visible range</span>
-            <div className="range-slider" aria-label="Visible range">
-              <div
-                className="range-slider__track"
-                style={{
-                  left: `${((visibleStart - availableStart) / availableSpan) * 100}%`,
-                  right: `${100 - ((visibleEnd - availableStart) / availableSpan) * 100}%`,
-                }}
-              />
-              <input
-                className="range-slider__input"
-                type="range"
-                min={availableStart}
-                max={availableEnd}
-                value={visibleStart}
-                onChange={(event) => {
-                  const nextStart = Math.min(
-                    Number(event.target.value),
-                    visibleEnd,
-                  );
-                  setVisibleStart(nextStart);
-                }}
-              />
-              <input
-                className="range-slider__input"
-                type="range"
-                min={availableStart}
-                max={availableEnd}
-                value={visibleEnd}
-                onChange={(event) => {
-                  const nextEnd = Math.max(
-                    Number(event.target.value),
-                    visibleStart,
-                  );
-                  setVisibleEnd(nextEnd);
-                }}
-              />
-            </div>
-          </div>
 
           <label className="number-group">
             <span>To</span>
@@ -704,14 +716,81 @@ function App() {
                 left: `${axisPad}px`,
                 width: `${plotAreaSize}px`,
                 height: `${plotAreaSize}px`,
-                backgroundSize: `${visibleGridCellSize}px ${visibleGridCellSize}px`,
               }}
-            />
+            >
+              <svg
+                aria-hidden="true"
+                className="plot-grid__svg"
+                viewBox={`0 0 ${plotAreaSize} ${plotAreaSize}`}
+              >
+                <path className="plot-grid__path" d={plotGridPath} />
+              </svg>
+            </div>
             <div className="plot-layer plot-layer--base" ref={basePlotRef} />
             <div
               className="plot-layer plot-layer--overlay"
               ref={overlayPlotRef}
             />
+          </div>
+        </div>
+
+        <div
+          className="plot-range-row"
+          ref={plotRangeRef}
+          style={{ width: `${plotSize}px` }}
+        >
+          <div
+            className="plot-range-shell"
+            style={{
+              marginLeft: `${axisPad}px`,
+              width: `${plotAreaSize}px`,
+            }}
+          >
+            <div className="range-slider" aria-label="Visible range">
+              <div
+                className="range-slider__track"
+                style={{
+                  left: `${((visibleStart - availableStart) / availableSpan) * 100}%`,
+                  right: `${100 - ((visibleEnd - availableStart) / availableSpan) * 100}%`,
+                }}
+              />
+              <input
+                className="range-slider__input"
+                type="range"
+                min={availableStart}
+                max={availableEnd}
+                value={visibleStart}
+                onChange={(event) => {
+                  const nextStart = Math.min(
+                    Number(event.target.value),
+                    visibleEnd,
+                  );
+                  setVisibleStart(nextStart);
+                }}
+              />
+              <input
+                className="range-slider__input"
+                type="range"
+                min={availableStart}
+                max={availableEnd}
+                value={visibleEnd}
+                onChange={(event) => {
+                  const nextEnd = Math.max(
+                    Number(event.target.value),
+                    visibleStart,
+                  );
+                  setVisibleEnd(nextEnd);
+                }}
+              />
+            </div>
+
+            <div className="plot-range__footer">
+              <span>{availableStart}</span>
+              <span>
+                {visibleCount} / {availableCount} visible
+              </span>
+              <span>{availableEnd}</span>
+            </div>
           </div>
         </div>
       </div>
