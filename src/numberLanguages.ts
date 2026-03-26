@@ -84,11 +84,14 @@ function getLocaleSignature(localeId: string): string {
   const Locale = LOCALES[localeId];
   const localeConfig = new Locale().config;
   const {
-    currency: _currency,
-    ordinalExactWordsMapping: _ordinalExactWordsMapping,
-    ordinalWordsMapping: _ordinalWordsMapping,
+    currency,
+    ordinalExactWordsMapping,
+    ordinalWordsMapping,
     ...spelloutConfig
   } = localeConfig;
+  void currency;
+  void ordinalExactWordsMapping;
+  void ordinalWordsMapping;
 
   return stableSerialize(spelloutConfig);
 }

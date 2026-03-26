@@ -1,7 +1,15 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import * as Plot from "@observablehq/plot";
 import * as d3 from "d3";
 import "./App.css";
+import { MultiSelectCombobox } from "./components/ui/MultiSelectCombobox";
 import {
   getLanguageCollator,
   getNumberName,
@@ -14,6 +22,8 @@ import {
 
 type NumberPoint = {
   alphabeticalRank: number;
+  languageId: LanguageId;
+  languageLabel: string;
   name: string;
   value: number;
 };
@@ -30,13 +40,27 @@ type EqualityPoint = {
 };
 
 type ChartData = {
-  data: NumberPoint[];
   equalityPoints: EqualityPoint[];
-  pointsByValue: Map<number, NumberPoint>;
   xValues: number[];
   xTicks: number[];
   yValues: number[];
   yTicks: number[];
+};
+
+type LanguageChartData = {
+  data: NumberPoint[];
+  pointsByValue: Map<number, NumberPoint>;
+};
+
+type LanguageSeries = {
+  chartData: LanguageChartData;
+  color: string;
+  languageId: LanguageId;
+  languageLabel: string;
+};
+
+type VisibleLanguageSeries = LanguageSeries & {
+  visiblePoints: NumberPoint[];
 };
 
 type PointDisplayMode = "auto" | "cells" | "squares";
@@ -50,6 +74,20 @@ const userOptionsStorageKey = "alphabetical-numbers:user-options";
 const compactPointMinSize = 1;
 const compactPointMaxSize = 4.8;
 const defaultAvailableCount = defaultAvailableEnd - defaultAvailableStart + 1;
+const languageColorPalette = [
+  "#67e8f9",
+  "#fbbf24",
+  "#fb7185",
+  "#86efac",
+  "#a78bfa",
+  "#fdba74",
+  "#7dd3fc",
+  "#f9a8d4",
+];
+const languageListFormatter = new Intl.ListFormat("en", {
+  style: "long",
+  type: "conjunction",
+});
 const legacyLanguageIds: Record<string, LanguageId> = {
   de: "de-DE",
   en: "en-US",
@@ -59,7 +97,7 @@ const legacyLanguageIds: Record<string, LanguageId> = {
 };
 
 type StoredUserOptions = {
-  selectedLanguageId: LanguageId;
+  selectedLanguageIds: LanguageId[];
   availableStart: number;
   availableEnd: number;
   visibleStart: number;
@@ -78,7 +116,7 @@ function isLanguageId(value: unknown): value is LanguageId {
   return typeof value === "string" && Object.hasOwn(numberLanguageById, value);
 }
 
-function getStoredLanguageId(value: unknown): LanguageId {
+function normalizeStoredLanguageId(value: unknown): LanguageId | null {
   if (isLanguageId(value)) {
     return value;
   }
@@ -92,10 +130,32 @@ function getStoredLanguageId(value: unknown): LanguageId {
   }
 
   if (typeof value === "string" && Object.hasOwn(legacyLanguageIds, value)) {
-    return resolveLanguageId(legacyLanguageIds[value]) ?? defaultLanguageId;
+    return resolveLanguageId(legacyLanguageIds[value]);
   }
 
-  return defaultLanguageId;
+  return null;
+}
+
+function getStoredLanguageId(value: unknown): LanguageId {
+  return normalizeStoredLanguageId(value) ?? defaultLanguageId;
+}
+
+function getStoredLanguageIds(value: unknown): LanguageId[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      value
+        .map((entry) => normalizeStoredLanguageId(entry))
+        .filter((entry): entry is LanguageId => entry !== null),
+    ),
+  );
+}
+
+function getLanguageColor(index: number): string {
+  return languageColorPalette[index % languageColorPalette.length];
 }
 
 function isPointDisplayMode(value: unknown): value is PointDisplayMode {
@@ -148,7 +208,11 @@ function getStoredUserOptions(): StoredUserOptions | null {
     }
 
     const parsedOptions = parsedValue as Record<string, unknown>;
-    const selectedLanguageId = getStoredLanguageId(parsedOptions.selectedLanguageId);
+    const selectedLanguageIds = getStoredLanguageIds(parsedOptions.selectedLanguageIds);
+    const preferredLanguageIds =
+      selectedLanguageIds.length > 0
+        ? selectedLanguageIds
+        : [getStoredLanguageId(parsedOptions.selectedLanguageId)];
     const availableStart = clamp(
       getStoredNumber(parsedOptions.availableStart, defaultAvailableStart),
       minAvailableStart,
@@ -185,7 +249,7 @@ function getStoredUserOptions(): StoredUserOptions | null {
       : "auto";
 
     return {
-      selectedLanguageId,
+      selectedLanguageIds: preferredLanguageIds,
       availableStart,
       availableEnd,
       visibleStart,
@@ -256,35 +320,10 @@ function getBandGridLayout(cellCount: number, plotAreaSize: number) {
 function buildChartData(
   rangeStart: number,
   rangeEnd: number,
-  languageId: LanguageId,
 ): ChartData {
   const xValues = d3.range(rangeStart, rangeEnd + 1);
   const count = xValues.length;
-  const collator = getLanguageCollator(languageId);
   const yValues = d3.range(1, count + 1);
-  const rawData: RawNumberEntry[] = xValues.map(
-    (value: number): RawNumberEntry => ({
-      name: getNumberName(value, languageId),
-      sortName: getSortableNumberName(value, languageId),
-      value,
-    }),
-  );
-
-  const data: NumberPoint[] = d3
-    .sort(rawData, (a: RawNumberEntry, b: RawNumberEntry) =>
-      collator.compare(a.sortName, b.sortName),
-    )
-    .map((entry: RawNumberEntry, index: number) => ({
-      alphabeticalRank: index + 1,
-      name: entry.name,
-      value: entry.value,
-    }));
-
-  const pointsByValue = new Map<number, NumberPoint>();
-
-  for (const point of data) {
-    pointsByValue.set(point.value, point);
-  }
 
   const tickStep = getTickStep(Math.max(1, rangeEnd - rangeStart));
   const xTicks = d3.range(rangeStart, rangeEnd + 1, tickStep);
@@ -309,9 +348,7 @@ function buildChartData(
       : [];
 
   return {
-    data,
     equalityPoints,
-    pointsByValue,
     xTicks,
     xValues,
     yTicks,
@@ -319,8 +356,48 @@ function buildChartData(
   };
 }
 
+function buildLanguageChartData(
+  rangeStart: number,
+  rangeEnd: number,
+  languageId: LanguageId,
+): LanguageChartData {
+  const xValues = d3.range(rangeStart, rangeEnd + 1);
+  const language = numberLanguageById[languageId];
+  const collator = getLanguageCollator(languageId);
+  const rawData: RawNumberEntry[] = xValues.map(
+    (value: number): RawNumberEntry => ({
+      name: getNumberName(value, languageId),
+      sortName: getSortableNumberName(value, languageId),
+      value,
+    }),
+  );
+
+  const data: NumberPoint[] = d3
+    .sort(rawData, (a: RawNumberEntry, b: RawNumberEntry) =>
+      collator.compare(a.sortName, b.sortName),
+    )
+    .map((entry: RawNumberEntry, index: number) => ({
+      alphabeticalRank: index + 1,
+      languageId,
+      languageLabel: language.label,
+      name: entry.name,
+      value: entry.value,
+    }));
+
+  const pointsByValue = new Map<number, NumberPoint>();
+
+  for (const point of data) {
+    pointsByValue.set(point.value, point);
+  }
+
+  return {
+    data,
+    pointsByValue,
+  };
+}
+
 function getPointTitle(entry: NumberPoint): string {
-  return `${entry.name}\nValue: ${entry.value}\nPosition: ${entry.alphabeticalRank}`;
+  return `${entry.languageLabel}: ${entry.name}\nValue: ${entry.value}\nPosition: ${entry.alphabeticalRank}`;
 }
 
 function App() {
@@ -329,8 +406,8 @@ function App() {
   const basePlotRef = useRef<HTMLDivElement | null>(null);
   const overlayPlotRef = useRef<HTMLDivElement | null>(null);
   const initialUserOptions = useMemo(() => getStoredUserOptions(), []);
-  const [selectedLanguageId, setSelectedLanguageId] = useState<LanguageId>(
-    initialUserOptions?.selectedLanguageId ?? defaultLanguageId,
+  const [selectedLanguageIds, setSelectedLanguageIds] = useState<LanguageId[]>(
+    initialUserOptions?.selectedLanguageIds ?? [defaultLanguageId],
   );
   const [availableStart, setAvailableStart] = useState(
     initialUserOptions?.availableStart ?? defaultAvailableStart,
@@ -357,7 +434,6 @@ function App() {
   const [showEqualityLine, setShowEqualityLine] = useState(
     initialUserOptions?.showEqualityLine ?? false,
   );
-  const selectedLanguage = numberLanguageById[selectedLanguageId];
   const guideFormulaLabel =
     availableStart === 0
       ? "Guide y=x+1"
@@ -366,40 +442,69 @@ function App() {
         : `Guide y=x-${availableStart - 1}`;
 
   const chartData = useMemo(
-    () => buildChartData(availableStart, availableEnd, selectedLanguageId),
-    [availableEnd, availableStart, selectedLanguageId],
+    () => buildChartData(availableStart, availableEnd),
+    [availableEnd, availableStart],
+  );
+  const languageSeries = useMemo<LanguageSeries[]>(
+    () =>
+      selectedLanguageIds.map((languageId, index) => ({
+        chartData: buildLanguageChartData(availableStart, availableEnd, languageId),
+        color: getLanguageColor(index),
+        languageId,
+        languageLabel: numberLanguageById[languageId].label,
+      })),
+    [availableEnd, availableStart, selectedLanguageIds],
+  );
+  const selectedLanguageSummary = useMemo(
+    () =>
+      languageListFormatter.format(
+        languageSeries.map((series) => series.languageLabel.toLowerCase()),
+      ),
+    [languageSeries],
+  );
+  const selectedLanguageColorById = useMemo(
+    () =>
+      new Map(
+        languageSeries.map((series) => [series.languageId, series.color] as const),
+      ),
+    [languageSeries],
   );
   const deferredVisibleStart = useDeferredValue(visibleStart);
   const deferredVisibleEnd = useDeferredValue(visibleEnd);
   const deferredVisibleRankStart = useDeferredValue(visibleRankStart);
   const deferredVisibleRankEnd = useDeferredValue(visibleRankEnd);
 
-  const visiblePoints = useMemo(() => {
-    const points: NumberPoint[] = [];
+  const visibleLanguageSeries = useMemo<VisibleLanguageSeries[]>(() => {
+    return languageSeries.map((series) => {
+      const visiblePoints: NumberPoint[] = [];
 
-    for (
-      let value = deferredVisibleStart;
-      value <= deferredVisibleEnd;
-      value += 1
-    ) {
-      const point = chartData.pointsByValue.get(value);
-
-      if (
-        point &&
-        point.alphabeticalRank >= deferredVisibleRankStart &&
-        point.alphabeticalRank <= deferredVisibleRankEnd
+      for (
+        let value = deferredVisibleStart;
+        value <= deferredVisibleEnd;
+        value += 1
       ) {
-        points.push(point);
-      }
-    }
+        const point = series.chartData.pointsByValue.get(value);
 
-    return points;
+        if (
+          point &&
+          point.alphabeticalRank >= deferredVisibleRankStart &&
+          point.alphabeticalRank <= deferredVisibleRankEnd
+        ) {
+          visiblePoints.push(point);
+        }
+      }
+
+      return {
+        ...series,
+        visiblePoints,
+      };
+    });
   }, [
-    chartData.pointsByValue,
     deferredVisibleEnd,
     deferredVisibleRankEnd,
     deferredVisibleRankStart,
     deferredVisibleStart,
+    languageSeries,
   ]);
   const visibleCount = Math.max(0, visibleEnd - visibleStart + 1);
   const availableCount = Math.max(0, availableEnd - availableStart + 1);
@@ -527,7 +632,7 @@ function App() {
       window.localStorage.setItem(
         userOptionsStorageKey,
         JSON.stringify({
-          selectedLanguageId,
+          selectedLanguageIds,
           availableStart,
           availableEnd,
           visibleStart,
@@ -545,7 +650,7 @@ function App() {
     availableEnd,
     availableStart,
     pointDisplayMode,
-    selectedLanguageId,
+    selectedLanguageIds,
     showEqualityLine,
     visibleEnd,
     visibleRankEnd,
@@ -622,24 +727,32 @@ function App() {
 
     const { axisPad, marginPad } = getPlotLayout(plotSize);
     const visiblePointMark = useCompactPointSquares
-      ? Plot.dot(visiblePoints, {
-          x: "value",
-          y: "alphabeticalRank",
-          fill: "#9c8dff",
-          fillOpacity: 0.86,
-          symbol: "square",
-          stroke: "rgba(235, 240, 255, 0.48)",
-          strokeWidth: 0.7,
-          r: compactPointRadius,
-          title: getPointTitle,
-        })
-      : Plot.cell(visiblePoints, {
-          x: "value",
-          y: "alphabeticalRank",
-          fill: "#9c8dff",
-          inset: 0.7,
-          title: getPointTitle,
-        });
+      ? visibleLanguageSeries.map((series) =>
+          Plot.dot(series.visiblePoints, {
+            x: "value",
+            y: "alphabeticalRank",
+            fill: series.color,
+            fillOpacity: 0.82,
+            symbol: "square",
+            stroke: "rgba(235, 240, 255, 0.52)",
+            strokeWidth: 0.7,
+            r: compactPointRadius,
+            title: getPointTitle,
+          }),
+        )
+      : visibleLanguageSeries.map((series) =>
+          Plot.cell(series.visiblePoints, {
+            x: "value",
+            y: "alphabeticalRank",
+            fill: series.color,
+            fillOpacity: 0.44,
+            inset: 0.8,
+            stroke: series.color,
+            strokeOpacity: 0.9,
+            strokeWidth: 0.45,
+            title: getPointTitle,
+          }),
+        );
 
     const overlayPlot = Plot.plot({
       width: plotSize,
@@ -691,7 +804,7 @@ function App() {
               }),
             ]
           : []),
-        visiblePointMark,
+        ...visiblePointMark,
       ],
     });
 
@@ -708,29 +821,31 @@ function App() {
     plotSize,
     showEqualityLine,
     useCompactPointSquares,
-    visiblePoints,
+    visibleLanguageSeries,
   ]);
 
   return (
     <main className="app-shell">
       <section className="controls-shell" ref={controlsRef}>
         <div className="control-toolbar">
-          <label className="number-group number-group--language">
+          <div className="number-group number-group--language">
             <span>Language</span>
-            <select
-              className="number-input select-input"
-              value={selectedLanguageId}
-              onChange={(event) => {
-                setSelectedLanguageId(event.target.value as LanguageId);
+            <MultiSelectCombobox
+              emptyText="No languages match your search."
+              minSelected={1}
+              onValueChange={(nextValues) => {
+                setSelectedLanguageIds(nextValues as LanguageId[]);
               }}
-            >
-              {numberLanguages.map((language) => (
-                <option key={language.id} value={language.id}>
-                  {language.label}
-                </option>
-              ))}
-            </select>
-          </label>
+              options={numberLanguages.map((language) => ({
+                color: selectedLanguageColorById.get(language.id),
+                label: language.label,
+                value: language.id,
+              }))}
+              placeholder="Choose one or more languages"
+              searchPlaceholder="Search languages..."
+              value={selectedLanguageIds}
+            />
+          </div>
 
           <label className="number-group number-group--display">
             <span>Display</span>
@@ -791,28 +906,47 @@ function App() {
             />
           </label>
 
-          <label className="toggle-switch toggle-switch--compact">
-            <input
-              className="toggle-switch__input"
-              type="checkbox"
-              checked={showEqualityLine}
-              onChange={(event) => {
-                setShowEqualityLine(event.target.checked);
+        </div>
+
+        <div className="language-legend" aria-label="Selected language overlays">
+          {languageSeries.map((series) => (
+            <button
+              aria-label={
+                selectedLanguageIds.length > 1
+                  ? `Remove ${series.languageLabel}`
+                  : `${series.languageLabel} is required`
+              }
+              className="language-legend__item"
+              disabled={selectedLanguageIds.length <= 1}
+              key={series.languageId}
+              onClick={() => {
+                if (selectedLanguageIds.length <= 1) {
+                  return;
+                }
+
+                setSelectedLanguageIds(
+                  selectedLanguageIds.filter(
+                    (languageId) => languageId !== series.languageId,
+                  ),
+                );
               }}
-            />
-            <span className="toggle-switch__control" aria-hidden="true">
-              <span className="toggle-switch__thumb" />
-            </span>
-            <span className="toggle-switch__copy">
-              <strong>{guideFormulaLabel}</strong>
-              <small>1-based line for current range</small>
-            </span>
-          </label>
+              style={
+                { "--language-color": series.color } as CSSProperties
+              }
+              type="button"
+            >
+              <span className="language-legend__swatch" aria-hidden="true" />
+              {series.languageLabel}
+              <span className="language-legend__remove" aria-hidden="true">
+                {selectedLanguageIds.length > 1 ? "x" : ""}
+              </span>
+            </button>
+          ))}
         </div>
 
         <p className="control-note">
-          Alphabetical positions are recalculated using{" "}
-          {selectedLanguage.label.toLowerCase()} spelling and collation rules.
+          Alphabetical positions are recalculated for {selectedLanguageSummary} and
+          overlaid on the same grid.
         </p>
       </section>
 
@@ -906,7 +1040,22 @@ function App() {
             </div>
           </div>
 
-          <div className="plot-matrix__spacer" aria-hidden="true" />
+          <label className="toggle-switch toggle-switch--plot">
+            <input
+              className="toggle-switch__input"
+              type="checkbox"
+              checked={showEqualityLine}
+              onChange={(event) => {
+                setShowEqualityLine(event.target.checked);
+              }}
+            />
+            <span className="toggle-switch__control" aria-hidden="true">
+              <span className="toggle-switch__thumb" />
+            </span>
+            <span className="toggle-switch__copy">
+              <strong>{guideFormulaLabel}</strong>
+            </span>
+          </label>
 
           <div
             className="plot-range-row"
