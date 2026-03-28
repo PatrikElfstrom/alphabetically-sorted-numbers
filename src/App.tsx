@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo } from "react";
+import { useDeferredValue, useMemo, useRef, useState } from "react";
 import "./app/AppShell.css";
 import { ControlsPanel } from "./components/ControlsPanel";
 import { PlotPanel } from "./components/PlotPanel";
@@ -12,7 +12,10 @@ import {
 } from "./lib/chartData";
 
 function App() {
-  const { controlsRef, plotRangeRef, plotSize } = usePlotSize();
+  const appShellRef = useRef<HTMLElement | null>(null);
+  const plotStageRef = useRef<HTMLDivElement | null>(null);
+  const { plotRangeRef, plotSize } = usePlotSize();
+  const [controlsMinimized, setControlsMinimized] = useState(false);
   const {
     options,
     setPointDisplayMode,
@@ -79,29 +82,37 @@ function App() {
   );
 
   return (
-    <main className="app-shell">
-      <ControlsPanel
-        controlsRef={controlsRef}
-        languageSeries={languageSeries}
-        options={options}
-        selectedLanguageColorById={selectedLanguageColorById}
-        setPointDisplayMode={setPointDisplayMode}
-        setSelectedLanguageIds={setSelectedLanguageIds}
-        toggleHiddenLanguageId={toggleHiddenLanguageId}
-        updateAvailableRange={updateAvailableRange}
-      />
-      <PlotPanel
-        chartData={chartData}
-        options={options}
-        plotRangeRef={plotRangeRef}
-        plotSize={plotSize}
-        setShowEqualityLine={setShowEqualityLine}
-        setVisibleRankRangeEnd={setVisibleRankRangeEnd}
-        setVisibleRankRangeStart={setVisibleRankRangeStart}
-        setVisibleValueRangeEnd={setVisibleValueRangeEnd}
-        setVisibleValueRangeStart={setVisibleValueRangeStart}
-        visibleLanguageSeries={visibleLanguageSeries}
-      />
+    <main className="app-shell" ref={appShellRef}>
+      <div className="app-shell__controls">
+        <ControlsPanel
+          controlsMinimized={controlsMinimized}
+          defaultAnchorRef={plotStageRef}
+          dragBoundsRef={appShellRef}
+          languageSeries={languageSeries}
+          options={options}
+          plotSize={plotSize}
+          selectedLanguageColorById={selectedLanguageColorById}
+          setControlsMinimized={setControlsMinimized}
+          setPointDisplayMode={setPointDisplayMode}
+          setSelectedLanguageIds={setSelectedLanguageIds}
+          toggleHiddenLanguageId={toggleHiddenLanguageId}
+          updateAvailableRange={updateAvailableRange}
+        />
+      </div>
+      <div className="plot-stage" ref={plotStageRef}>
+        <PlotPanel
+          chartData={chartData}
+          options={options}
+          plotRangeRef={plotRangeRef}
+          plotSize={plotSize}
+          setShowEqualityLine={setShowEqualityLine}
+          setVisibleRankRangeEnd={setVisibleRankRangeEnd}
+          setVisibleRankRangeStart={setVisibleRankRangeStart}
+          setVisibleValueRangeEnd={setVisibleValueRangeEnd}
+          setVisibleValueRangeStart={setVisibleValueRangeStart}
+          visibleLanguageSeries={visibleLanguageSeries}
+        />
+      </div>
     </main>
   );
 }

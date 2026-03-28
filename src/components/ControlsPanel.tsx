@@ -1,24 +1,28 @@
-import { type CSSProperties, type RefObject, useMemo } from "react";
+import { motion } from "motion/react";
+import { type RefObject, useId } from "react";
 import type { AppOptions, NumberRange, PointDisplayMode } from "../app/types";
 import type { LanguageSeries } from "../lib/chartData";
-import {
-  getAvailableRangeFromEndInput,
-  getAvailableRangeFromStartInput,
-  getLanguageOptions,
-  getLanguageRemovalLabel,
-  getLanguageVisibilityLabel,
-  removeSelectedLanguage,
-} from "../lib/controlsPanel";
-import { maxAvailableValue, minAvailableStart } from "../lib/appOptions";
-import { type LanguageId } from "../numberLanguages";
 import "./ControlsPanel.css";
-import { MultiSelectCombobox } from "./ui/MultiSelectCombobox";
+import { useFloatingControls } from "../hooks/useFloatingControls";
+import { type LanguageId } from "../numberLanguages";
+import { ControlsPanelContent } from "./ControlsPanelContent";
+
+const floatingButtonDragTransition = {
+  bounceDamping: 15,
+  bounceStiffness: 440,
+  power: 0.3,
+  timeConstant: 150,
+} as const;
 
 type ControlsPanelProps = {
-  controlsRef: RefObject<HTMLElement | null>;
+  controlsMinimized: boolean;
+  defaultAnchorRef: RefObject<HTMLElement | null>;
+  dragBoundsRef: RefObject<HTMLElement | null>;
   languageSeries: LanguageSeries[];
   options: AppOptions;
+  plotSize: number;
   selectedLanguageColorById: Map<LanguageId, string>;
+  setControlsMinimized: (controlsMinimized: boolean) => void;
   setPointDisplayMode: (pointDisplayMode: PointDisplayMode) => void;
   setSelectedLanguageIds: (selectedLanguageIds: LanguageId[]) => void;
   toggleHiddenLanguageId: (languageId: LanguageId) => void;
@@ -26,146 +30,100 @@ type ControlsPanelProps = {
 };
 
 export function ControlsPanel({
-  controlsRef,
+  controlsMinimized,
+  defaultAnchorRef,
+  dragBoundsRef,
   languageSeries,
   options,
+  plotSize,
   selectedLanguageColorById,
+  setControlsMinimized,
   setPointDisplayMode,
   setSelectedLanguageIds,
   toggleHiddenLanguageId,
   updateAvailableRange,
 }: ControlsPanelProps) {
-  const languageOptions = useMemo(
-    () => getLanguageOptions(selectedLanguageColorById),
-    [selectedLanguageColorById],
-  );
-  const hiddenLanguageIdSet = useMemo(
-    () => new Set(options.hiddenLanguageIds),
-    [options.hiddenLanguageIds],
-  );
+  const controlsBodyId = useId();
+  const {
+    dragControls,
+    floatingStyles,
+    handleButtonPointerDown,
+    handleDrag,
+    handleDragEnd,
+    handleDragStart,
+    panelAlignment,
+    setFloating,
+    setReference,
+    shellStyle,
+    shouldSuppressToggle,
+  } = useFloatingControls({
+    controlsMinimized,
+    defaultAnchorRef,
+    dragBoundsRef,
+    plotSize,
+  });
 
   return (
-    <section className="controls-shell" ref={controlsRef}>
-      <div className="control-toolbar">
-        <div className="number-group number-group--language">
-          <span>Language</span>
-          <MultiSelectCombobox
-            emptyText="No languages match your search."
-            onValueChange={(nextValues) => {
-              setSelectedLanguageIds(nextValues as LanguageId[]);
-            }}
-            options={languageOptions}
-            placeholder="Choose one or more languages"
-            searchPlaceholder="Search languages..."
-            selectAllLabel="Select all languages"
-            value={options.selectedLanguageIds}
-          />
-        </div>
+    <>
+      <motion.div
+        animate={{
+          opacity: 1,
+          scale: 1,
+        }}
+        className="controls-floating-shell"
+        drag
+        dragControls={dragControls}
+        dragConstraints={dragBoundsRef}
+        dragElastic={0.16}
+        dragListener={false}
+        dragTransition={floatingButtonDragTransition}
+        initial={{
+          opacity: 0,
+          scale: 0.94,
+        }}
+        onDrag={handleDrag}
+        onDragEnd={handleDragEnd}
+        onDragStart={handleDragStart}
+        style={shellStyle}
+        whileDrag={{
+          scale: 1.05,
+          boxShadow: "0 22px 54px rgba(0, 0, 0, 0.34)",
+        }}
+      >
+        <button
+          aria-controls={controlsBodyId}
+          aria-expanded={!controlsMinimized}
+          className="controls-shell__floating-toggle"
+          onClick={() => {
+            if (shouldSuppressToggle()) {
+              return;
+            }
 
-        <label className="number-group number-group--display">
-          <span>Display</span>
-          <select
-            className="number-input select-input"
-            onChange={(event) => {
-              setPointDisplayMode(event.target.value as PointDisplayMode);
-            }}
-            value={options.pointDisplayMode}
-          >
-            <option value="auto">Auto</option>
-            <option value="cells">Cells</option>
-            <option value="squares">Squares</option>
-          </select>
-        </label>
+            setControlsMinimized(!controlsMinimized);
+          }}
+          onPointerDown={handleButtonPointerDown}
+          ref={setReference}
+          type="button"
+        >
+          {controlsMinimized ? "Show controls" : "Hide controls"}
+        </button>
+      </motion.div>
 
-        <label className="number-group number-group--from">
-          <span>From</span>
-          <input
-            className="number-input"
-            max={maxAvailableValue}
-            min={minAvailableStart}
-            onChange={(event) => {
-              updateAvailableRange(
-                getAvailableRangeFromStartInput(
-                  event.target.value,
-                  options.availableRange.end,
-                ),
-              );
-            }}
-            type="number"
-            value={options.availableRange.start}
-          />
-        </label>
-
-        <label className="number-group number-group--to">
-          <span>To</span>
-          <input
-            className="number-input"
-            max={maxAvailableValue}
-            min={minAvailableStart}
-            onChange={(event) => {
-              updateAvailableRange(
-                getAvailableRangeFromEndInput(
-                  event.target.value,
-                  options.availableRange.start,
-                ),
-              );
-            }}
-            type="number"
-            value={options.availableRange.end}
-          />
-        </label>
-      </div>
-
-      <div className="language-legend" aria-label="Selected language overlays">
-        {languageSeries.map((series) => {
-          const isHidden = hiddenLanguageIdSet.has(series.languageId);
-
-          return (
-            <div
-              className={
-                isHidden
-                  ? "language-legend__item language-legend__item--hidden"
-                  : "language-legend__item"
-              }
-              key={series.languageId}
-              style={{ "--language-color": series.color } as CSSProperties}
-            >
-              <button
-                aria-label={getLanguageVisibilityLabel(
-                  isHidden,
-                  series.languageLabel,
-                )}
-                aria-pressed={!isHidden}
-                className="language-legend__toggle"
-                onClick={() => {
-                  toggleHiddenLanguageId(series.languageId);
-                }}
-                type="button"
-              >
-                <span aria-hidden="true" className="language-legend__swatch" />
-                <span className="language-legend__label">
-                  {series.languageLabel}
-                </span>
-              </button>
-              <button
-                aria-label={getLanguageRemovalLabel(series.languageLabel)}
-                className="language-legend__remove"
-                onClick={() => {
-                  setSelectedLanguageIds(
-                    removeSelectedLanguage(
-                      options.selectedLanguageIds,
-                      series.languageId,
-                    ),
-                  );
-                }}
-                type="button"
-              >
-                x
-              </button>
-            </div>
-          );
-        })}
-      </div>
-    </section>
+      {controlsMinimized ? null : (
+        <ControlsPanelContent
+          controlsBodyId={controlsBodyId}
+          floatingRef={setFloating}
+          floatingStyle={floatingStyles}
+          languageSeries={languageSeries}
+          options={options}
+          panelAlignment={panelAlignment}
+          selectedLanguageColorById={selectedLanguageColorById}
+          setPointDisplayMode={setPointDisplayMode}
+          setSelectedLanguageIds={setSelectedLanguageIds}
+          toggleHiddenLanguageId={toggleHiddenLanguageId}
+          updateAvailableRange={updateAvailableRange}
+        />
+      )}
+    </>
   );
 }
