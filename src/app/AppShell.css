@@ -1,0 +1,69 @@
+.app-shell {
+  position: relative;
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto auto;
+  align-content: center;
+  justify-items: center;
+  gap: 0.65rem;
+  padding: 0.85rem;
+  overflow: hidden;
+}
+
+.app-shell::before,
+.app-shell::after {
+  content: "";
+  position: absolute;
+  inset: auto;
+  pointer-events: none;
+  filter: blur(56px);
+}
+
+.app-shell::before {
+  left: -12rem;
+  bottom: -10rem;
+  width: 34rem;
+  height: 15rem;
+  background: linear-gradient(
+    135deg,
+    rgba(146, 110, 255, 0.9),
+    rgba(88, 194, 255, 0.35)
+  );
+  transform: rotate(16deg);
+}
+
+.app-shell::after {
+  right: -10rem;
+  bottom: -11rem;
+  width: 30rem;
+  height: 14rem;
+  background: linear-gradient(
+    135deg,
+    rgba(143, 115, 255, 0.65),
+    rgba(93, 117, 255, 0.22)
+  );
+  transform: rotate(-10deg);
+}
+
+.controls-shell,
+.plot-shell {
+  position: relative;
+  z-index: 1;
+  border: 1px solid rgba(211, 220, 255, 0.08);
+  background: linear-gradient(
+    180deg,
+    rgba(19, 22, 37, 0.86),
+    rgba(10, 12, 22, 0.94)
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 18px 48px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(12px);
+}
+
+@media (max-width: 720px) {
+  .app-shell {
+    padding: 0.55rem;
+    gap: 0.5rem;
+  }
+}

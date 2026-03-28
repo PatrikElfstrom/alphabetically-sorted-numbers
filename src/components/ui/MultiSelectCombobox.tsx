@@ -3,7 +3,7 @@ import * as Popover from "@radix-ui/react-popover";
 import { Command } from "cmdk";
 import "./MultiSelectCombobox.css";
 
-type MultiSelectComboboxOption = {
+type MultiSelectOption = {
   value: string;
   label: string;
   color?: string;
@@ -13,15 +13,18 @@ type MultiSelectComboboxProps = {
   emptyText: string;
   minSelected?: number;
   onValueChange: (nextValues: string[]) => void;
-  options: MultiSelectComboboxOption[];
+  options: MultiSelectOption[];
   placeholder: string;
   searchPlaceholder: string;
   value: string[];
 };
 
-function getTriggerLabel(selectedOptions: MultiSelectComboboxOption[]): string {
+function getSelectionLabel(
+  placeholder: string,
+  selectedOptions: MultiSelectOption[],
+): string {
   if (selectedOptions.length === 0) {
-    return "Select languages";
+    return placeholder;
   }
 
   if (selectedOptions.length === 1) {
@@ -29,6 +32,24 @@ function getTriggerLabel(selectedOptions: MultiSelectComboboxOption[]): string {
   }
 
   return `${selectedOptions.length} languages selected`;
+}
+
+function getNextValues(
+  currentValues: string[],
+  nextValue: string,
+  minSelected: number,
+): string[] {
+  const isSelected = currentValues.includes(nextValue);
+
+  if (!isSelected) {
+    return [...currentValues, nextValue];
+  }
+
+  if (currentValues.length <= minSelected) {
+    return currentValues;
+  }
+
+  return currentValues.filter((currentValue) => currentValue !== nextValue);
 }
 
 export function MultiSelectCombobox({
@@ -46,25 +67,11 @@ export function MultiSelectCombobox({
     () => options.filter((option) => selectedValueSet.has(option.value)),
     [options, selectedValueSet],
   );
-
-  const toggleValue = (nextValue: string) => {
-    const isSelected = selectedValueSet.has(nextValue);
-
-    if (isSelected) {
-      if (value.length <= minSelected) {
-        return;
-      }
-
-      onValueChange(value.filter((currentValue) => currentValue !== nextValue));
-      return;
-    }
-
-    onValueChange([...value, nextValue]);
-  };
+  const triggerLabel = getSelectionLabel(placeholder, selectedOptions);
 
   return (
     <div className="multi-combobox">
-      <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Root onOpenChange={setOpen} open={open}>
         <Popover.Trigger asChild>
           <button
             aria-expanded={open}
@@ -78,9 +85,7 @@ export function MultiSelectCombobox({
                   : "multi-combobox__trigger-text"
               }
             >
-              {selectedOptions.length === 0
-                ? placeholder
-                : getTriggerLabel(selectedOptions)}
+              {triggerLabel}
             </span>
             <svg
               aria-hidden="true"
@@ -135,7 +140,9 @@ export function MultiSelectCombobox({
                         key={option.value}
                         keywords={[option.label]}
                         onSelect={() => {
-                          toggleValue(option.value);
+                          onValueChange(
+                            getNextValues(value, option.value, minSelected),
+                          );
                         }}
                         value={option.value}
                       >
@@ -175,7 +182,6 @@ export function MultiSelectCombobox({
           </Popover.Content>
         </Popover.Portal>
       </Popover.Root>
-
     </div>
   );
 }
