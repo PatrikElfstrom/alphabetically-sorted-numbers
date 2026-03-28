@@ -67,6 +67,7 @@ type FloatingPosition = {
 
 type ControlsPanelContentProps = {
   controlsBodyId: string;
+  controlsPinned: boolean;
   floatingRef: (node: HTMLElement | null) => void;
   floatingPlacement: string;
   floatingPosition: FloatingPosition | null;
@@ -74,6 +75,7 @@ type ControlsPanelContentProps = {
   options: AppOptions;
   panelAlignment: "left" | "right";
   selectedLanguageColorById: Map<LanguageId, string>;
+  setControlsPinned: (controlsPinned: boolean) => void;
   setPointDisplayMode: (pointDisplayMode: PointDisplayMode) => void;
   setSelectedLanguageIds: (selectedLanguageIds: LanguageId[]) => void;
   setShowEqualityLine: (showEqualityLine: boolean) => void;
@@ -84,6 +86,7 @@ type ControlsPanelContentProps = {
 
 export function ControlsPanelContent({
   controlsBodyId,
+  controlsPinned,
   floatingRef,
   floatingPlacement,
   floatingPosition,
@@ -91,6 +94,7 @@ export function ControlsPanelContent({
   options,
   panelAlignment,
   selectedLanguageColorById,
+  setControlsPinned,
   setPointDisplayMode,
   setSelectedLanguageIds,
   setShowEqualityLine,
@@ -234,14 +238,38 @@ export function ControlsPanelContent({
         initial={panelMotion.initial}
         transition={panelTransition}
       >
-        <motion.span
+        <motion.div
           animate={sectionMotion.animate}
-          className="controls-shell__eyebrow"
+          className="controls-shell__eyebrow-row"
           initial={sectionMotion.initial}
           transition={sectionTransition}
         >
-          Controls
-        </motion.span>
+          <span className="controls-shell__eyebrow">Controls</span>
+          <button
+            aria-label={controlsPinned ? "Unpin controls panel" : "Pin controls panel"}
+            aria-pressed={controlsPinned}
+            className={
+              controlsPinned
+                ? "controls-shell__pin-toggle controls-shell__pin-toggle--active"
+                : "controls-shell__pin-toggle"
+            }
+            onClick={() => {
+              setControlsPinned(!controlsPinned);
+            }}
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              className="controls-shell__pin-icon"
+              viewBox="0 0 16 16"
+            >
+              <path
+                d="M10.95 1.75a.75.75 0 0 1 .53 1.28L10.3 4.22l1.48 3.05a.75.75 0 0 1-.7 1.08H8.74L8.2 13.9a.75.75 0 0 1-1.48 0l-.54-5.55H3.83a.75.75 0 0 1-.7-1.08L4.6 4.22 3.42 3.03a.75.75 0 0 1 .53-1.28z"
+                fill="currentColor"
+              />
+            </svg>
+          </button>
+        </motion.div>
 
         <div className="controls-shell__body">
           <motion.div

@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "motion/react";
-import { type RefObject, useEffect, useId, useRef } from "react";
+import { type RefObject, useEffect, useId, useRef, useState } from "react";
 import type { AppOptions, NumberRange, PointDisplayMode } from "../app/types";
 import type { LanguageSeries } from "../lib/chartData";
 import "./ControlsPanel.css";
@@ -48,6 +48,7 @@ export function ControlsPanel({
   updateAvailableRange,
 }: ControlsPanelProps) {
   const controlsBodyId = useId();
+  const [controlsPinned, setControlsPinned] = useState(false);
   const floatingPanelRef = useRef<HTMLElement | null>(null);
   const floatingToggleRef = useRef<HTMLButtonElement | null>(null);
   const {
@@ -71,7 +72,7 @@ export function ControlsPanel({
   });
 
   useEffect(() => {
-    if (controlsMinimized) {
+    if (controlsMinimized || controlsPinned) {
       return;
     }
 
@@ -111,7 +112,7 @@ export function ControlsPanel({
     return () => {
       document.removeEventListener("pointerdown", handleDocumentPointerDown);
     };
-  }, [controlsMinimized, setControlsMinimized]);
+  }, [controlsMinimized, controlsPinned, setControlsMinimized]);
 
   return (
     <>
@@ -165,6 +166,7 @@ export function ControlsPanel({
       <AnimatePresence initial={false}>
         {controlsMinimized ? null : (
           <ControlsPanelContent
+            controlsPinned={controlsPinned}
             controlsBodyId={controlsBodyId}
             floatingRef={(node) => {
               floatingPanelRef.current = node;
@@ -176,6 +178,7 @@ export function ControlsPanel({
             options={options}
             panelAlignment={panelAlignment}
             selectedLanguageColorById={selectedLanguageColorById}
+            setControlsPinned={setControlsPinned}
             setPointDisplayMode={setPointDisplayMode}
             setSelectedLanguageIds={setSelectedLanguageIds}
             setShowEqualityLine={setShowEqualityLine}

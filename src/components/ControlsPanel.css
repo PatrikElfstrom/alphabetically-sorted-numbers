@@ -80,6 +80,64 @@
   color: rgba(232, 237, 255, 0.7);
 }
 
+.controls-shell__eyebrow-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.controls-shell__pin-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border: 1px solid rgba(210, 219, 255, 0.1);
+  border-radius: 999px;
+  color: rgba(232, 237, 255, 0.68);
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    color 140ms ease,
+    transform 140ms ease;
+}
+
+.controls-shell__pin-toggle:hover {
+  border-color: rgba(210, 219, 255, 0.22);
+  color: rgba(248, 249, 255, 0.96);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.controls-shell__pin-toggle:focus-visible {
+  outline: 2px solid rgba(110, 231, 255, 0.5);
+  outline-offset: 2px;
+}
+
+.controls-shell__pin-toggle--active {
+  border-color: rgba(255, 210, 122, 0.34);
+  color: rgba(255, 225, 164, 0.96);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 210, 122, 0.16),
+    rgba(156, 141, 255, 0.12)
+  );
+}
+
+.controls-shell__pin-icon {
+  width: 0.88rem;
+  height: 0.88rem;
+  transform: rotate(20deg);
+}
+
+.controls-shell__pin-toggle--active .controls-shell__pin-icon {
+  transform: rotate(0deg);
+}
+
 .controls-shell__body {
   display: grid;
   gap: 0.7rem;
